@@ -49,7 +49,7 @@ jobs:
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1.276.0
         with:
-          ruby-version: '4.0.0'
+          ruby-version: '3.4.7'
           bundler-cache: true
           cache-version: 1
           

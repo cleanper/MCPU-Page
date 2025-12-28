@@ -4,14 +4,100 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0f172a">
-    <title>MCPU-Page</title>
-    <link rel="stylesheet" href="style.css">
+    <title>MCPU Slideshow</title>
+
+    <style id="critical-css">
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #0f172a;
+            font-family: system-ui, sans-serif;
+        }
+        
+        #loader {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            background: #0f172a;
+            z-index: 1000;
+            transition: opacity 300ms ease;
+        }
+        
+        .loader-content {
+            text-align: center;
+            color: #e2e8f0;
+        }
+        
+        .progress-container {
+            width: min(90vw, 300px);
+            height: 4px;
+            background: rgba(100, 116, 139, 0.2);
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 1.5rem auto 1rem;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #818cf8, #c7d2fe);
+            width: 0%;
+            border-radius: 2px;
+            transition: width 150ms ease;
+        }
+        
+        #main-content {
+            position: fixed;
+            inset: 0;
+            display: none;
+            opacity: 0;
+            transition: opacity 500ms ease;
+        }
+        
+        .image-container {
+            position: absolute;
+            inset: 0;
+        }
+        
+        #display-image {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            opacity: 0;
+            transition: opacity 1000ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .text-container {
+            position: absolute;
+            top: 12%;
+            left: 0;
+            right: 0;
+            text-align: center;
+            padding: 0 1rem;
+            z-index: 2;
+            pointer-events: none;
+        }
+    </style>
+
+    <link rel="stylesheet" href="style.css" media="print" onload="this.media='all'">
+
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🖼️</text></svg>">
+    
+    <!-- PWA元数据 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 </head>
 <body>
     <div id="loader">
         <div class="loader-content">
-            <div class="loader-text">正在加载资源...</div>
+            <div class="loader-text">加载资源中...</div>
             <div class="progress-container">
                 <div class="progress-bar" id="progress-bar"></div>
             </div>
@@ -19,9 +105,12 @@
         </div>
     </div>
     
-    <div id="main-content" style="display: none;">
+    <div id="main-content">
         <div class="image-container">
-            <img id="display-image" alt="展示图片" class="optimized-animation">
+            <img id="display-image" 
+                 alt="展示图片"
+                 decoding="async"
+                 loading="eager">
         </div>
         
         <div class="text-container">
@@ -29,7 +118,96 @@
             <span id="cursor"></span>
         </div>
     </div>
-    
-    <script type="module" src="app.js"></script>
+
+    <script type="module">
+        window.appStartTime = performance.now();
+
+        async function loadApp() {
+            try {
+                const [{ CONFIG }, { ModernParticleSystem }, { ModernSlideshowApp }] = await Promise.all([
+                    import('./config.js'),
+                    import('./particle-system.js'),
+                    import('./app.js')
+                ]);
+
+                await new Promise(resolve => {
+                    if (document.readyState === 'complete') {
+                        resolve();
+                    } else {
+                        window.addEventListener('load', resolve, { once: true });
+                    }
+                });
+
+                window.app = new ModernSlideshowApp();
+                window.appLoadTime = performance.now();
+                
+            } catch (error) {
+                console.error('应用加载失败:', error);
+
+                const loader = document.getElementById('loader');
+                if (loader) {
+                    loader.innerHTML = `
+                        <div class="loader-content">
+                            <div class="loader-text">加载失败</div>
+                            <button onclick="location.reload()" style="
+                                background: #818cf8;
+                                color: white;
+                                border: none;
+                                padding: 10px 20px;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                margin-top: 20px;
+                                font-size: 1rem;
+                            ">重试</button>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadApp);
+        } else {
+            loadApp();
+        }
+
+        window.addEventListener('error', (e) => {
+            console.warn('页面错误:', e.error);
+        }, true);
+        
+        window.addEventListener('unhandledrejection', (e) => {
+            console.warn('未处理的Promise:', e.reason);
+        });
+    </script>
+
+    <noscript>
+        <style>
+            #loader { display: none !important; }
+            #main-content { 
+                display: block !important; 
+                opacity: 1 !important; 
+            }
+        </style>
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 10000;
+        ">
+            <div>
+                <h1>需要JavaScript</h1>
+                <p>请启用JavaScript以获得完整体验</p>
+            </div>
+        </div>
+    </noscript>
 </body>
 </html>

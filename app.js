@@ -1,315 +1,430 @@
 import { CONFIG } from './config.js';
+import { ModernParticleSystem } from './particle-system.js';
 
-class ResourceLoader {
+class ModernResourceLoader {
     constructor() {
+        this.progress = 0;
+        this.total = CONFIG.imageCount + 1;
         this.loaded = 0;
-        this.total = CONFIG.imageCount + 2;
-        this.progressBar = document.getElementById('progress-bar');
-        this.progressText = document.getElementById('progress-text');
-        this.loaderText = document.querySelector('.loader-text');
         this.images = [];
+        this.cache = new Map();
     }
-
+    
     async loadAll() {
-        const loaders = [];
-        
-        const audioLoader = this.loadAudio().then(() => {
-            this.updateProgress('音频加载完成');
-        });
-        loaders.push(audioLoader);
-        
-        for (let i = 1; i <= CONFIG.imageCount; i++) {
-            const imageLoader = this.loadImage(i).then(() => {
-                this.updateProgress(`图片 ${i}/${CONFIG.imageCount} 加载完成`);
-            });
-            loaders.push(imageLoader);
+        try {
+            await Promise.allSettled([
+                this.loadAudio(),
+                ...this.loadImages()
+            ]);
+            
+            return this.images;
+        } catch (error) {
+            console.warn('资源加载异常:', error);
+            return this.images;
         }
-        
-        await Promise.allSettled(loaders);
-        return this.images;
     }
-
-    loadAudio() {
+    
+    async loadAudio() {
         return new Promise((resolve) => {
             const audio = new Audio();
-            const sourceFlac = document.createElement('source');
-            sourceFlac.src = CONFIG.audioFile;
-            sourceFlac.type = 'audio/flac';
-            
-            const sourceMp3 = document.createElement('source');
-            sourceMp3.src = CONFIG.audioFallback;
-            sourceMp3.type = 'audio/mpeg';
-            
-            audio.appendChild(sourceFlac);
-            audio.appendChild(sourceMp3);
             audio.preload = 'auto';
             audio.loop = true;
             audio.volume = 0.7;
+
+            const canPlayFlac = audio.canPlayType('audio/flac') !== '';
+            const canPlayMp3 = audio.canPlayType('audio/mpeg') !== '';
+            
+            if (canPlayFlac && CONFIG.audioFile) {
+                audio.src = CONFIG.audioFile;
+            } else if (canPlayMp3 && CONFIG.audioFallback) {
+                audio.src = CONFIG.audioFallback;
+            } else {
+                this.updateProgress();
+                resolve();
+                return;
+            }
             
             audio.oncanplaythrough = () => {
                 window.appAudio = audio;
-                this.loaded++;
+                this.updateProgress();
                 resolve();
             };
             
             audio.onerror = () => {
-                this.loaded++;
+                this.updateProgress();
                 resolve();
             };
+            
+            audio.load();
         });
     }
-
-    loadImage(index) {
+    
+    loadImages() {
+        const promises = [];
+        
+        for (let i = 1; i <= CONFIG.imageCount; i++) {
+            promises.push(this.loadImage(i));
+        }
+        
+        return promises;
+    }
+    
+    async loadImage(index) {
+        const imageName = `${CONFIG.imageBaseName}${index}${CONFIG.imageExtension}`;
+        
+        if (this.cache.has(imageName)) {
+            this.images.push(imageName);
+            this.updateProgress();
+            return;
+        }
+        
         return new Promise((resolve) => {
             const img = new Image();
-            const imageName = `${CONFIG.imageBaseName}${index}${CONFIG.imageExtension}`;
+            img.decoding = 'async';
+            img.fetchPriority = 'high';
             
             img.onload = () => {
                 this.images.push(imageName);
-                this.loaded++;
+                this.cache.set(imageName, img);
+                this.updateProgress();
                 resolve();
             };
             
             img.onerror = () => {
-                this.loaded++;
+                this.updateProgress();
                 resolve();
             };
             
             img.src = imageName;
-            img.loading = 'eager';
         });
     }
-
-    updateProgress(message) {
-        const progress = Math.floor((this.loaded / this.total) * 100);
-        this.progressBar.style.width = `${progress}%`;
-        this.progressText.textContent = `${progress}%`;
-        this.loaderText.textContent = message;
+    
+    updateProgress() {
+        this.loaded++;
+        this.progress = Math.floor((this.loaded / this.total) * 100);
+        
+        requestAnimationFrame(() => {
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            
+            if (bar) bar.style.width = `${this.progress}%`;
+            if (text) text.textContent = `${this.progress}%`;
+        });
     }
 }
 
-class TextEffect {
+class ModernTypewriter {
     constructor(textElement, cursorElement) {
         this.textElement = textElement;
         this.cursorElement = cursorElement;
-        this.currentText = '';
+        this.queue = [];
         this.isTyping = false;
-        this.typingTimeout = null;
+        this.timeout = null;
     }
-
-    typeText(text) {
-        if (this.isTyping) {
-            this.stopTyping();
+    
+    type(text, callback) {
+        this.queue.push({ text, callback });
+        if (!this.isTyping) {
+            this.processQueue();
         }
-
+    }
+    
+    processQueue() {
+        if (this.queue.length === 0) {
+            this.isTyping = false;
+            this.startCursorBlink();
+            return;
+        }
+        
+        const { text, callback } = this.queue.shift();
         this.isTyping = true;
-        this.currentText = '';
-        this.textElement.textContent = '';
+        this.stopCursorBlink();
+        this.cursorElement.style.opacity = '1';
         
         let index = 0;
-        const typeNextChar = () => {
+        const typeChar = () => {
             if (index < text.length) {
-                this.currentText += text.charAt(index);
-                this.textElement.textContent = this.currentText;
+                this.textElement.textContent = text.slice(0, index + 1);
                 index++;
                 
                 const speed = CONFIG.typingSpeed.min + 
                             Math.random() * (CONFIG.typingSpeed.max - CONFIG.typingSpeed.min);
                 
-                this.typingTimeout = setTimeout(typeNextChar, speed);
+                this.timeout = setTimeout(typeChar, speed);
             } else {
                 this.isTyping = false;
+                if (callback) callback();
+                setTimeout(() => this.processQueue(), 500);
             }
         };
-
-        typeNextChar();
+        
+        typeChar();
     }
-
-    stopTyping() {
-        if (this.typingTimeout) {
-            clearTimeout(this.typingTimeout);
-            this.typingTimeout = null;
+    
+    startCursorBlink() {
+        let visible = true;
+        const blink = () => {
+            this.cursorElement.style.opacity = visible ? '1' : '0.3';
+            visible = !visible;
+            
+            if (!this.isTyping) {
+                setTimeout(() => requestAnimationFrame(blink), 500);
+            }
+        };
+        
+        requestAnimationFrame(blink);
+    }
+    
+    stopCursorBlink() {
+        this.cursorElement.style.opacity = '1';
+    }
+    
+    clear() {
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = null;
         }
+        this.queue = [];
         this.isTyping = false;
-    }
-
-    changeText(texts) {
-        const randomIndex = Math.floor(Math.random() * texts.length);
-        let nextText = texts[randomIndex];
-        
-        if (typeof nextText === 'function') {
-            nextText = nextText();
-        }
-        
-        this.typeText(nextText);
-    }
-
-    toggleCursor(show) {
-        this.cursorElement.style.opacity = show ? '1' : '0';
-    }
-
-    cleanup() {
-        this.stopTyping();
         this.textElement.textContent = '';
-        this.toggleCursor(false);
+        this.startCursorBlink();
     }
 }
 
-class SlideshowApp {
+class CoupletManager {
+    constructor() {
+        this.container = null;
+        this.isVisible = false;
+        this.timeout = null;
+        
+        this.init();
+    }
+    
+    init() {
+        this.createCouplet();
+        this.scheduleShow();
+
+        document.addEventListener('click', () => {
+            this.hide();
+            this.scheduleShow();
+        }, { once: false });
+    }
+    
+    createCouplet() {
+        this.container = document.createElement('div');
+        this.container.className = 'couplet-container';
+        
+        const couplet = document.createElement('div');
+        couplet.className = 'couplet';
+        couplet.innerHTML = `
+            <span>福彩齐到</span>
+            <span>兴盛乐矣</span>
+        `;
+        
+        this.container.appendChild(couplet);
+        document.body.appendChild(this.container);
+    }
+    
+    show() {
+        if (this.isVisible) return;
+        
+        this.isVisible = true;
+        this.container.classList.add('show');
+        
+        // 8秒后自动隐藏
+        this.timeout = setTimeout(() => {
+            this.hide();
+            this.scheduleShow();
+        }, 8000);
+    }
+    
+    hide() {
+        if (!this.isVisible) return;
+        
+        this.isVisible = false;
+        this.container.classList.remove('show');
+        
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = null;
+        }
+    }
+    
+    scheduleShow() {
+        const delay = Math.random() * 30000 + 30000;
+        setTimeout(() => {
+            this.show();
+        }, delay);
+    }
+    
+    cleanup() {
+        this.hide();
+        if (this.container && this.container.parentNode) {
+            this.container.remove();
+        }
+    }
+}
+
+class ModernSlideshowApp {
     constructor() {
         this.imageElement = document.getElementById('display-image');
         this.textElement = document.getElementById('typed-text');
         this.cursorElement = document.getElementById('cursor');
         this.loader = document.getElementById('loader');
         this.mainContent = document.getElementById('main-content');
-        this.textEffect = null;
-        this.isRunning = false;
-        this.imageInterval = null;
-        this.textInterval = null;
-        this.currentIndex = 0;
+        
+        this.typewriter = null;
+        this.particles = null;
+        this.couplet = null;
         this.images = [];
-        this.init();
+        this.currentIndex = 0;
+        this.imageTimer = null;
+        this.textTimer = null;
+        
+        this.initialize();
     }
-
-    async init() {
+    
+    async initialize() {
         try {
-            const resourceLoader = new ResourceLoader();
-            this.images = await resourceLoader.loadAll();
+            const loader = new ModernResourceLoader();
+            this.images = await loader.loadAll();
+
             this.showMainContent();
-            this.textEffect = new TextEffect(this.textElement, this.cursorElement);
+
+            this.typewriter = new ModernTypewriter(this.textElement, this.cursorElement);
+            this.particles = new ModernParticleSystem();
+            this.couplet = new CoupletManager();
+
             this.startSlideshow();
-            this.setupEventListeners();
+
+            this.setupEvents();
+            
         } catch (error) {
             console.error('初始化失败:', error);
+            this.showMainContent();
         }
     }
-
+    
     showMainContent() {
         this.loader.style.opacity = '0';
+        
         setTimeout(() => {
             this.loader.style.display = 'none';
             this.mainContent.style.display = 'block';
-            setTimeout(() => {
+            
+            requestAnimationFrame(() => {
                 this.mainContent.style.opacity = '1';
-            }, 10);
-        }, 500);
+            });
+        }, 300);
     }
-
+    
     startSlideshow() {
-        if (this.isRunning) return;
-        
-        this.isRunning = true;
-        
         this.changeImage();
-        
-        this.textEffect.changeText(CONFIG.texts);
-        
-        this.imageInterval = setInterval(() => {
+
+        this.changeText();
+
+        this.imageTimer = setInterval(() => {
             this.changeImage();
         }, CONFIG.imageInterval);
         
-        this.textInterval = setInterval(() => {
-            this.textEffect.changeText(CONFIG.texts);
+        this.textTimer = setInterval(() => {
+            this.changeText();
         }, CONFIG.textInterval);
     }
-
+    
     changeImage() {
+        if (this.images.length === 0) return;
+
         this.imageElement.classList.remove('fade-in');
+
+        const nextIndex = (this.currentIndex + 1) % this.images.length;
+        this.preloadImage(nextIndex);
         
         setTimeout(() => {
-            if (this.images.length === 0) {
-                this.imageElement.src = this.getPlaceholder();
-                this.fadeInImage();
-                return;
+            this.imageElement.src = this.images[this.currentIndex];
+            this.currentIndex = nextIndex;
+            
+            this.imageElement.onload = () => {
+                this.imageElement.classList.add('fade-in');
+            };
+
+            if (this.imageElement.complete) {
+                this.imageElement.classList.add('fade-in');
             }
-            
-            const imageName = this.images[this.currentIndex % this.images.length];
-            this.currentIndex++;
-            
-            requestAnimationFrame(() => {
-                this.imageElement.src = imageName;
-                
-                if (this.imageElement.complete) {
-                    this.fadeInImage();
-                } else {
-                    this.imageElement.onload = () => this.fadeInImage();
-                }
-            });
         }, CONFIG.fadeDuration / 2);
     }
-
-    fadeInImage() {
-        requestAnimationFrame(() => {
-            this.imageElement.classList.add('fade-in');
-        });
+    
+    preloadImage(index) {
+        if (index >= this.images.length) return;
+        
+        const img = new Image();
+        img.src = this.images[index];
     }
-
-    getPlaceholder() {
-        return `data:image/svg+xml;base64,${btoa(`
-            <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
-                <rect width="100%" height="100%" fill="#1e293b"/>
-                <text x="50%" y="50%" font-size="24" fill="#64748b" 
-                      text-anchor="middle" dy=".3em">等待图片加载...</text>
-            </svg>
-        `)}`;
+    
+    changeText() {
+        const randomIndex = Math.floor(Math.random() * CONFIG.texts.length);
+        let text = CONFIG.texts[randomIndex];
+        
+        if (typeof text === 'function') {
+            try {
+                text = text();
+            } catch {
+                text = CONFIG.texts[0] || '';
+            }
+        }
+        
+        if (text) {
+            this.typewriter.type(text);
+        }
     }
-
-    setupEventListeners() {
+    
+    setupEvents() {
         const activateAudio = () => {
             if (window.appAudio && window.appAudio.paused) {
-                window.appAudio.play().catch(e => console.log('音频播放失败:', e));
-                document.removeEventListener('click', activateAudio);
-                document.removeEventListener('touchstart', activateAudio);
-                document.removeEventListener('keydown', activateAudio);
+                window.appAudio.play().catch(() => {});
             }
         };
         
-        document.addEventListener('click', activateAudio);
-        document.addEventListener('touchstart', activateAudio);
-        document.addEventListener('keydown', activateAudio);
-        
+        document.addEventListener('click', activateAudio, { once: true });
+        document.addEventListener('touchstart', activateAudio, { once: true });
+
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && window.appAudio) {
-                window.appAudio.pause();
-            } else if (window.appAudio) {
-                window.appAudio.play().catch(e => {});
+            if (document.hidden) {
+                if (window.appAudio) window.appAudio.pause();
+                this.particles.pause();
+            } else {
+                if (window.appAudio) window.appAudio.play().catch(() => {});
+                this.particles.resume();
             }
         });
-        
-        let resizeTimeout;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-                this.imageElement.style.display = 'none';
-                requestAnimationFrame(() => {
-                    this.imageElement.style.display = 'block';
-                });
-            }, 250);
-        });
-    }
 
+        window.addEventListener('resize', () => {
+            this.particles.resize();
+        }, { passive: true });
+    }
+    
     cleanup() {
-        if (this.imageInterval) clearInterval(this.imageInterval);
-        if (this.textInterval) clearInterval(this.textInterval);
-        
-        this.textEffect?.cleanup();
-        
+        if (this.imageTimer) clearInterval(this.imageTimer);
+        if (this.textTimer) clearInterval(this.textTimer);
+
+        this.typewriter?.clear();
+        this.particles?.cleanup();
+        this.couplet?.cleanup();
+
         if (window.appAudio) {
             window.appAudio.pause();
             window.appAudio.src = '';
-            window.appAudio.load();
+            delete window.appAudio;
         }
-        
-        this.isRunning = false;
     }
 }
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        window.app = new SlideshowApp();
+        window.app = new ModernSlideshowApp();
     });
 } else {
-    window.app = new SlideshowApp();
+    window.app = new ModernSlideshowApp();
 }
 
 window.addEventListener('beforeunload', () => {
@@ -318,4 +433,4 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-export { SlideshowApp };
+export { ModernSlideshowApp };

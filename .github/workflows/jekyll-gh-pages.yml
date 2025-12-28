@@ -1,4 +1,4 @@
-name: Deploy Jekyll to GitHub Pages (Optimized)
+name: Deploy Jekyll to GitHub Pages
 
 on:
   push:
@@ -22,12 +22,12 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.1
         with:
           fetch-depth: 0
           
       - name: Cache Ruby gems
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.1
         id: gem-cache
         with:
           path: vendor/bundle
@@ -36,7 +36,7 @@ jobs:
             ${{ runner.os }}-gems-
             
       - name: Cache Jekyll build
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.1
         id: jekyll-cache
         with:
           path: |
@@ -47,9 +47,9 @@ jobs:
             ${{ runner.os }}-jekyll-assets-
             
       - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@v1.276.0
         with:
-          ruby-version: '3.3'
+          ruby-version: '4.0.0'
           bundler-cache: true
           cache-version: 1
           
@@ -62,7 +62,7 @@ jobs:
           bundle install --jobs 4 --retry 3
           
       - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
+        uses: actions/jekyll-build-pages@v1.0.13
         env:
           JEKYLL_ENV: production
           TZ: UTC
@@ -95,4 +95,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v4.0.5

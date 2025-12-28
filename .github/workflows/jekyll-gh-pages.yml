@@ -1,9 +1,8 @@
-name: Deploy Jekyll to GitHub Pages
+name: Deploy Static Site
 
 on:
   push:
     branches: ["main"]
-
   workflow_dispatch:
 
 permissions:
@@ -18,67 +17,76 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.1
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: '20'
+          cache: 'npm'
           
-      - name: Cache Ruby gems
-        uses: actions/cache@v5.0.1
-        id: gem-cache
-        with:
-          path: vendor/bundle
-          key: ${{ runner.os }}-gems-${{ hashFiles('**/Gemfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-gems-
-            
-      - name: Cache Jekyll build
-        uses: actions/cache@v5.0.1
-        id: jekyll-cache
-        with:
-          path: |
-            .jekyll-cache
-            _site/assets
-          key: ${{ runner.os }}-jekyll-assets-${{ hashFiles('**/_config.yml', '**/Gemfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-jekyll-assets-
-            
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1.276.0
-        with:
-          ruby-version: '3.4.7'
-          bundler-cache: true
-          cache-version: 1
+      - name: Install minification tools
+        run: |
+          npm install -g clean-css-cli terser html-minifier-terser
+          
+      - name: Minify CSS files
+        run: |
+          find . -name "*.css" ! -name "*.min.css" -type f | while read file; do
+            if [ -f "$file" ]; then
+              minfile="${file%.css}.min.css"
+              cleancss "$file" -o "$minfile"
+              echo "Minified: $file -> $minfile"
+            fi
+          done
+          
+      - name: Minify JavaScript files
+        run: |
+          find . -name "*.js" ! -name "*.min.js" ! -path "./node_modules/*" -type f | while read file; do
+            if [ -f "$file" ]; then
+              minfile="${file%.js}.min.js"
+              terser "$file" -o "$minfile" --compress --mangle
+              echo "Minified: $file -> $minfile"
+            fi
+          done
+          
+      - name: Minify HTML files
+        run: |
+          find . -name "*.html" -type f | while read file; do
+            if [ -f "$file" ]; then
+              tempfile="${file}.tmp"
+              html-minifier-terser \
+                "$file" \
+                -o "$tempfile" \
+                --collapse-whitespace \
+                --remove-comments \
+                --remove-redundant-attributes \
+                --minify-css true \
+                --minify-js true
+              mv "$tempfile" "$file"
+              echo "Minified: $file"
+            fi
+          done
+          
+      - name: Prepare build directory
+        run: |
+          mkdir -p _site
+          shopt -s extglob
+          cp -r !(node_modules|.git*|_site) _site/ 2>/dev/null || true
+          
+      - name: Update HTML references
+        run: |
+          cd _site
+          find . -name "*.html" -type f -exec sed -i 's/\.css"/.min.css"/g' {} \;
+          find . -name "*.html" -type f -exec sed -i 's/\.js"/.min.js"/g' {} \;
+          find . -name "*.html" -type f -exec sed -i "s/\.js'/.min.js'/g" {} \;
           
       - name: Setup Pages
         uses: actions/configure-pages@v5
         
-      - name: Install Jekyll dependencies
-        run: |
-          bundle config set --local path 'vendor/bundle'
-          bundle install --jobs 4 --retry 3
-          
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1.0.13
-        env:
-          JEKYLL_ENV: production
-          TZ: UTC
-        with:
-          source: ./
-          destination: ./_site
-          jekyll_build_flags: "--future --incremental --profile --verbose"
-          
-      - name: Verify build output
-        run: |
-          if [ ! -d "_site" ]; then
-            echo "Build failed: _site directory not found"
-            exit 1
-          fi
-          echo "Build completed successfully"
-          
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

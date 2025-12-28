@@ -1,3 +1,5 @@
+import { CONFIG } from './config.js';
+
 export class ModernParticleSystem {
     constructor() {
         this.canvas = null;

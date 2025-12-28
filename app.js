@@ -17,6 +17,7 @@ class ModernResourceLoader {
                 ...this.loadImages()
             ]);
             
+            console.log('所有资源加载完成，图片列表:', this.images);
             return this.images;
         } catch (error) {
             console.warn('资源加载异常:', error);
@@ -39,6 +40,7 @@ class ModernResourceLoader {
             } else if (canPlayMp3 && CONFIG.audioFallback) {
                 audio.src = CONFIG.audioFallback;
             } else {
+                console.log('不支持音频格式或未配置音频');
                 this.updateProgress();
                 resolve();
                 return;
@@ -46,11 +48,13 @@ class ModernResourceLoader {
             
             audio.oncanplaythrough = () => {
                 window.appAudio = audio;
+                console.log('音频加载完成');
                 this.updateProgress();
                 resolve();
             };
             
-            audio.onerror = () => {
+            audio.onerror = (e) => {
+                console.log('音频加载失败:', e);
                 this.updateProgress();
                 resolve();
             };
@@ -71,6 +75,7 @@ class ModernResourceLoader {
     
     async loadImage(index) {
         const imageName = `${CONFIG.imageBaseName}${index}${CONFIG.imageExtension}`;
+        console.log('尝试加载图片:', imageName);
         
         if (this.cache.has(imageName)) {
             this.images.push(imageName);
@@ -84,13 +89,15 @@ class ModernResourceLoader {
             img.fetchPriority = 'high';
             
             img.onload = () => {
+                console.log('图片加载成功:', imageName);
                 this.images.push(imageName);
                 this.cache.set(imageName, img);
                 this.updateProgress();
                 resolve();
             };
             
-            img.onerror = () => {
+            img.onerror = (e) => {
+                console.error('图片加载失败:', imageName, e);
                 this.updateProgress();
                 resolve();
             };
@@ -102,13 +109,18 @@ class ModernResourceLoader {
     updateProgress() {
         this.loaded++;
         this.progress = Math.floor((this.loaded / this.total) * 100);
+        console.log(`进度: ${this.progress}% (${this.loaded}/${this.total})`);
         
         requestAnimationFrame(() => {
             const bar = document.getElementById('progress-bar');
             const text = document.getElementById('progress-text');
             
-            if (bar) bar.style.width = `${this.progress}%`;
-            if (text) text.textContent = `${this.progress}%`;
+            if (bar) {
+                bar.style.width = `${this.progress}%`;
+            }
+            if (text) {
+                text.textContent = `${this.progress}%`;
+            }
         });
     }
 }
@@ -123,6 +135,7 @@ class ModernTypewriter {
     }
     
     type(text, callback) {
+        console.log('开始打字:', text);
         this.queue.push({ text, callback });
         if (!this.isTyping) {
             this.processQueue();
@@ -152,6 +165,7 @@ class ModernTypewriter {
                 
                 this.timeout = setTimeout(typeChar, speed);
             } else {
+                console.log('打字完成:', text);
                 this.isTyping = false;
                 if (callback) callback();
                 setTimeout(() => this.processQueue(), 500);
@@ -164,11 +178,13 @@ class ModernTypewriter {
     startCursorBlink() {
         let visible = true;
         const blink = () => {
-            this.cursorElement.style.opacity = visible ? '1' : '0.3';
-            visible = !visible;
-            
-            if (!this.isTyping) {
-                setTimeout(() => requestAnimationFrame(blink), 500);
+            if (this.cursorElement) {
+                this.cursorElement.style.opacity = visible ? '1' : '0.3';
+                visible = !visible;
+                
+                if (!this.isTyping) {
+                    setTimeout(() => requestAnimationFrame(blink), 500);
+                }
             }
         };
         
@@ -176,7 +192,9 @@ class ModernTypewriter {
     }
     
     stopCursorBlink() {
-        this.cursorElement.style.opacity = '1';
+        if (this.cursorElement) {
+            this.cursorElement.style.opacity = '1';
+        }
     }
     
     clear() {
@@ -186,7 +204,9 @@ class ModernTypewriter {
         }
         this.queue = [];
         this.isTyping = false;
-        this.textElement.textContent = '';
+        if (this.textElement) {
+            this.textElement.textContent = '';
+        }
         this.startCursorBlink();
     }
 }
@@ -273,6 +293,14 @@ class ModernSlideshowApp {
         this.loader = document.getElementById('loader');
         this.mainContent = document.getElementById('main-content');
         
+        console.log('DOM元素状态:', {
+            imageElement: !!this.imageElement,
+            textElement: !!this.textElement,
+            cursorElement: !!this.cursorElement,
+            loader: !!this.loader,
+            mainContent: !!this.mainContent
+        });
+        
         this.typewriter = null;
         this.particles = null;
         this.couplet = null;
@@ -286,8 +314,14 @@ class ModernSlideshowApp {
     
     async initialize() {
         try {
+            console.log('开始初始化应用...');
             const loader = new ModernResourceLoader();
             this.images = await loader.loadAll();
+            console.log('加载到的图片数量:', this.images.length);
+
+            if (this.images.length === 0) {
+                console.warn('没有加载到任何图片，请检查图片文件是否存在');
+            }
 
             this.showMainContent();
 
@@ -296,7 +330,6 @@ class ModernSlideshowApp {
             this.couplet = new CoupletManager();
 
             this.startSlideshow();
-
             this.setupEvents();
             
         } catch (error) {
@@ -306,6 +339,7 @@ class ModernSlideshowApp {
     }
     
     showMainContent() {
+        console.log('显示主内容');
         this.loader.style.opacity = '0';
         
         setTimeout(() => {
@@ -314,17 +348,26 @@ class ModernSlideshowApp {
             
             requestAnimationFrame(() => {
                 this.mainContent.style.opacity = '1';
+                console.log('主内容已显示');
             });
         }, 300);
     }
     
     startSlideshow() {
-        this.changeImage();
+        console.log('开始轮播');
+        if (this.images.length > 0) {
+            this.changeImage();
+        } else {
+            console.log('没有可显示的图片');
+            this.imageElement.style.opacity = '1';
+        }
 
         this.changeText();
 
         this.imageTimer = setInterval(() => {
-            this.changeImage();
+            if (this.images.length > 0) {
+                this.changeImage();
+            }
         }, CONFIG.imageInterval);
         
         this.textTimer = setInterval(() => {
@@ -333,22 +376,35 @@ class ModernSlideshowApp {
     }
     
     changeImage() {
-        if (this.images.length === 0) return;
+        if (this.images.length === 0) {
+            console.log('没有图片可切换');
+            return;
+        }
 
+        console.log(`切换图片: ${this.currentIndex} -> ${(this.currentIndex + 1) % this.images.length}`);
         this.imageElement.classList.remove('fade-in');
 
         const nextIndex = (this.currentIndex + 1) % this.images.length;
         this.preloadImage(nextIndex);
         
         setTimeout(() => {
-            this.imageElement.src = this.images[this.currentIndex];
+            const imageUrl = this.images[this.currentIndex];
+            console.log('设置图片源:', imageUrl);
+            this.imageElement.src = imageUrl;
             this.currentIndex = nextIndex;
             
             this.imageElement.onload = () => {
+                console.log('图片加载完成，开始淡入');
                 this.imageElement.classList.add('fade-in');
             };
 
+            this.imageElement.onerror = () => {
+                console.error('图片加载失败:', imageUrl);
+                this.imageElement.style.opacity = '0.1';
+            };
+
             if (this.imageElement.complete) {
+                console.log('图片已缓存，立即淡入');
                 this.imageElement.classList.add('fade-in');
             }
         }, CONFIG.fadeDuration / 2);
@@ -359,6 +415,8 @@ class ModernSlideshowApp {
         
         const img = new Image();
         img.src = this.images[index];
+        img.onload = () => console.log('预加载完成:', this.images[index]);
+        img.onerror = () => console.error('预加载失败:', this.images[index]);
     }
     
     changeText() {
@@ -369,11 +427,12 @@ class ModernSlideshowApp {
             try {
                 text = text();
             } catch {
-                text = CONFIG.texts[0] || '';
+                text = CONFIG.texts[0] || 'Welcome';
             }
         }
         
-        if (text) {
+        console.log('更换文本:', text);
+        if (text && this.typewriter) {
             this.typewriter.type(text);
         }
     }
@@ -381,7 +440,9 @@ class ModernSlideshowApp {
     setupEvents() {
         const activateAudio = () => {
             if (window.appAudio && window.appAudio.paused) {
-                window.appAudio.play().catch(() => {});
+                window.appAudio.play().catch(() => {
+                    console.log('音频播放失败，可能是浏览器策略限制');
+                });
             }
         };
         
@@ -404,6 +465,7 @@ class ModernSlideshowApp {
     }
     
     cleanup() {
+        console.log('清理应用资源');
         if (this.imageTimer) clearInterval(this.imageTimer);
         if (this.textTimer) clearInterval(this.textTimer);
 
@@ -419,11 +481,22 @@ class ModernSlideshowApp {
     }
 }
 
+async function checkImageExists(url) {
+    try {
+        const response = await fetch(url, { method: 'HEAD' });
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOMContentLoaded 事件触发');
         window.app = new ModernSlideshowApp();
     });
 } else {
+    console.log('DOM 已加载，立即启动应用');
     window.app = new ModernSlideshowApp();
 }
 
